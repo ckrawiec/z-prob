@@ -3,21 +3,13 @@ Calculate the Bayesian probability that
 fluxes of input galaxies belong to 
 certain redshift ranges using photo-z's.
 
-usage: python zprobability.py <data table> <truth table> <output> <start index> <end index>
+usage: python runzprob.py <config file>
 
-<data table> must include the following:
-    -SExtractor flux and error outputs
-<truth table> must include the following:
-    -SExtractor flux and error outputs
-    -column named 'photoz' or 'zminchi2' (specify below)
-
-<output> will be a binary fits table and will overwrite existing file
-
-<start/end index> are optional indices to only work on a slice of the data table
+outputs a binary fits table and will overwrite existing file
 """
 
 import numpy as np
-import zprobability_debug as zprob
+import zprobability as zprob
 import ConfigParser
 import json
 import time
@@ -35,17 +27,17 @@ def parseconfig(config_file):
     params['target_file'] = config.get('I/O','target_file')
     params['output_file'] = config.get('I/O','output_file')
     if os.path.exists(params['output_file']):
-        sys.exit("Output file already exists. Delete before running again.\n    Exiting.")
+        sys.exit("Error: {}\nOutput file already exists. Delete before running again.\n    Exiting.".format(params['output_file']))
     
     params['filters'] = config.get('parameters','filters')
     params['redshift_ranges'] = json.loads(config.get('parameters','redshift_ranges'))
 
     params['num_threads'] = config.getint('parameters','num_threads')
     params['integration'] = config.get('parameters','integration')
-    global k_near
-    k_near = None
+    global query_radius
+    query_radius = None
     if params['integration'] == 'tree':
-        params['k_near'] = config.getint('parameters','k_near')
+        query_radius = config.getfloat('parameters','query_radius')
         
     params['template_id_column'] = config.get('data','template_id_column')
     params['template_data_column'] = config.get('data','template_data_column')
@@ -97,7 +89,7 @@ def writetofile(params, Pdict, targets):
                                                                              params['filters'])
                                                                         
     if params['integration']=='tree':
-        tb_hdr['NTREE'] = str(params['k_near'])
+        tb_hdr['RADIUS'] = str(query_radius)
 
     pri_hdu = fits.PrimaryHDU(header=pri_hdr)
     tb_hdu = fits.BinTableHDU.from_columns(fits.ColDefs(col_defs), nrows=len(targets.data), header=tb_hdr)
@@ -146,7 +138,7 @@ def main(args):
                                        params['redshift_ranges'],
                                        params['num_threads'],
                                        params['integration'],
-                                       k_near)
+                                       query_radius)
         
     #write results to fits file
     writetofile(params, P_dict, targets)

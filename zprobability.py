@@ -5,7 +5,7 @@ from multiprocessing import Pool
 from astropy.io import fits
 from scipy.spatial import ckdtree
 
-k_near, integrate = None, None
+query_radius, integrate = None, None
 
 def likelihoods(val, err, truevals):
     """
@@ -23,8 +23,10 @@ def P(vals, errs, truevals, nchunks=500, ntruechunks=1000):
     sum the gaussian likelihoods L(vals|truevals) over truevals using the errs on vals
     vals, errs, and truevals are lists or arrays of data/error vectors 
     """
+
     out = np.array([])
 
+    #break data into chunks
     chunks = itertools.izip([vals[i:i+nchunks] for i in xrange(0, len(vals), nchunks)], 
                             [errs[i:i+nchunks] for i in xrange(0, len(vals), nchunks)])
     
@@ -34,6 +36,7 @@ def P(vals, errs, truevals, nchunks=500, ntruechunks=1000):
         covIs = 1./errchunk**2.
         A = 1./np.sqrt( (2.*np.pi)**len(vals[0])  * np.prod(errchunk**2., axis=1 ) )
 
+        #sum over all templates in chunks
         truechunks = (truevals[i:i+ntruechunks] for i in xrange(0, len(truevals), ntruechunks))
         for truechunk in truechunks:
             diff = chunk[:,np.newaxis,:]-truechunk[np.newaxis,:,:]
@@ -42,45 +45,38 @@ def P(vals, errs, truevals, nchunks=500, ntruechunks=1000):
             C = A[:,np.newaxis] * np.exp(B)
             
             trueout += np.sum(C, axis=1)
-
+        
+        #add target chunk to end of list
         out = np.concatenate((out, trueout))
     
     return out
 
-def Ptree(vals, errs, truevals):
-    
-    #median of errors along each filter axis
-    sigma = np.median(errs.T, axis=1)
+def Ptree(vals, errs, truevals, treeunit):
+    out = []
 
     #build truth tree in units of sigma
-    truetree = ckdtree.cKDTree(truevals)#/sigma)
+    truetree = ckdtree.cKDTree(truevals/treeunit)
 
-    out = []
     for val, err in zip(vals, errs):
-
-        #get knear nearest neighbors to target
-        dnear, inear = truetree.query(val, k=k_near)#/sigma, k=k_near)
+        #get nearest neighbors within query_radius to target
+        inear = truetree.query_ball_point(val/treeunit, r=query_radius)
 
         #data of nearest neighbors
-        truearr = truetree.data[inear] #* sigma
+        truearr = truetree.data[inear] * treeunit
 
         Ls = likelihoods(val, err, truearr)
 
-        #sum likelihoods and compensate for tree integral
-        out.append(np.sum(Ls) * float(len(truevals))/len(truearr))
+        #sum likelihoods
+        out.append(np.sum(Ls))
             
     return np.array(out)
 
 def Pwrapper(args):
     if integrate=='tree':
-        #if truth array shorter than k_near, just do full integration
-        if len(args[-1]) > k_near:
-            return Ptree(*args)
-        else:
-            print "Length of truth array ({}) <= {}, using brute force integration instead of tree".format(len(args[-1]), k_near)
-            return P(*args)
+        return Ptree(*args)
     elif integrate=='full':
-        return P(*args)
+        #exclude last argument
+        return P(*args[:-1])
     else:
         raise ValueError('Choose integration=\'full\' or \'tree\'')
     
@@ -118,11 +114,11 @@ class Targets:
         
         del data
 
-    def calcProbabilities(self, templates, zranges, numthreads, integration, knear=None):
+    def calcProbabilities(self, templates, zranges, numthreads, integration, queryradius=None):
         global integrate
         integrate = integration
-        global k_near
-        k_near = knear
+        global query_radius
+        query_radius = queryradius
     
         N = len(self.data)
 
@@ -132,10 +128,13 @@ class Targets:
 
         #multiprocessing
         print "#Multiprocessing checks:"
+        print "    Number of total targets: {}\n".format(N)
         print "    Number of processes: ", numthreads
         print "    Number of targets per process: ", n_per_process
         print "    Number of target chunks, error chunks: ", len(data_chunks), len(error_chunks)
-        print "    Number of total targets: {}\n".format(N)
+
+        #median of errors along each filter axis
+        sigma = np.median(self.errors.T, axis=1)
 
         P_dict = {}
         pool = Pool(processes=numthreads)
@@ -146,7 +145,9 @@ class Targets:
 
             start_work = time.time()
 
-            results = pool.map(Pwrapper, itertools.izip( data_chunks, error_chunks, itertools.repeat(template_data) ) )
+            results = pool.map(Pwrapper, itertools.izip( data_chunks, error_chunks, 
+                                                         itertools.repeat(template_data),
+                                                         itertools.repeat(sigma) ) )
         
             P_dict[str(z_range)] = np.concatenate(results)
 
