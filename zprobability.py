@@ -51,24 +51,29 @@ def P(vals, errs, truevals, nchunks=500, ntruechunks=1000):
     
     return out
 
-def Ptree(vals, errs, truevals, treeunit):
+def Ptree(vals, errs, truevals):
     out = []
+    lencheck = 0
 
-    #build truth tree in units of sigma
-    truetree = ckdtree.cKDTree(truevals/treeunit)
+    #build truth tree 
+    truetree = ckdtree.cKDTree(truevals)
 
     for val, err in zip(vals, errs):
         #get nearest neighbors within query_radius to target
-        inear = truetree.query_ball_point(val/treeunit, r=query_radius)
+        inear = truetree.query_ball_point(val, r=query_radius*err)
+        if len(inear)>1000000.:
+            lencheck+=1
 
         #data of nearest neighbors
-        truearr = truetree.data[inear] * treeunit
+        truearr = truetree.data[inear]
 
         Ls = likelihoods(val, err, truearr)
 
         #sum likelihoods
         out.append(np.sum(Ls))
             
+    print "Warning: ball query returned >1m points for {} targets ({}%).".format(lencheck, 
+                                                                                 float(lencheck)/len(vals))
     return np.array(out)
 
 def Pwrapper(args):
@@ -76,7 +81,7 @@ def Pwrapper(args):
         return Ptree(*args)
     elif integrate=='full':
         #exclude last argument
-        return P(*args[:-1])
+        return P(*args)
     else:
         raise ValueError('Choose integration=\'full\' or \'tree\'')
     
@@ -134,8 +139,6 @@ class Targets:
         print "    Number of target chunks, error chunks: ", len(data_chunks), len(error_chunks)
 
         #median of errors along each filter axis
-        sigma = np.median(self.errors.T, axis=1)
-
         P_dict = {}
         pool = Pool(processes=numthreads)
         
@@ -146,8 +149,7 @@ class Targets:
             start_work = time.time()
 
             results = pool.map(Pwrapper, itertools.izip( data_chunks, error_chunks, 
-                                                         itertools.repeat(template_data),
-                                                         itertools.repeat(sigma) ) )
+                                                         itertools.repeat(template_data) ) )
         
             P_dict[str(z_range)] = np.concatenate(results)
 
