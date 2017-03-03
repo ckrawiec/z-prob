@@ -120,7 +120,7 @@ class Targets:
         global query_radius
         query_radius = queryradius
     
-        N = len(self.data)
+        N =  len(self.data)
 
         n_per_process = int( np.ceil( len(self.data) / float(numthreads) ) )
         data_chunks = [ self.data[i:i+n_per_process] for i in xrange(0, N, n_per_process) ]
