@@ -1,6 +1,7 @@
 import itertools
 import time
 import numpy as np
+from scipy.cluster.vq import kmeans, vq
 from multiprocessing import Pool
 from astropy.io import fits
 from scipy.spatial import ckdtree
@@ -51,29 +52,30 @@ def P(vals, errs, truevals, nchunks=500, ntruechunks=1000):
     
     return out
 
-def Ptree(vals, errs, truevals):
+def Ptree(vals, errs, truevals, treeunit):
     out = []
     lencheck = 0
 
     #build truth tree 
-    truetree = ckdtree.cKDTree(truevals)
+    truetree = ckdtree.cKDTree(truevals/treeunit)
 
     for val, err in zip(vals, errs):
         #get nearest neighbors within query_radius to target
-        inear = truetree.query_ball_point(val, r=query_radius*err)
+        inear = truetree.query_ball_point(val/treeunit, r=query_radius)
         if len(inear)>1000000.:
             lencheck+=1
 
         #data of nearest neighbors
-        truearr = truetree.data[inear]
+        truearr = truetree.data[inear] * treeunit
 
         Ls = likelihoods(val, err, truearr)
 
         #sum likelihoods
         out.append(np.sum(Ls))
-            
-    print "Warning: ball query returned >1m points for {} targets ({}%).".format(lencheck, 
-                                                                                 float(lencheck)/len(vals))
+
+    if lencheck>0:
+        print "Warning: ball query returned >1m points for {} targets ({}%).".format(lencheck, 
+                                                                                     float(lencheck)/len(vals))
     return np.array(out)
 
 def Pwrapper(args):
@@ -81,7 +83,7 @@ def Pwrapper(args):
         return Ptree(*args)
     elif integrate=='full':
         #exclude last argument
-        return P(*args)
+        return P(*args[:-1])
     else:
         raise ValueError('Choose integration=\'full\' or \'tree\'')
     
@@ -125,11 +127,35 @@ class Targets:
         global query_radius
         query_radius = queryradius
     
-        N =  len(self.data)
+        N = len(self.data)
 
-        n_per_process = int( np.ceil( len(self.data) / float(numthreads) ) )
-        data_chunks = [ self.data[i:i+n_per_process] for i in xrange(0, N, n_per_process) ]
-        error_chunks = [ self.errors[i:i+n_per_process] for i in xrange(0, N, n_per_process) ]
+        P_dict = {}
+
+        if integration=='tree':
+            centers, _ = kmeans(self.errors, numthreads)
+            k_indices, _ = vq(self.errors, centers)
+
+            id_chunks = [self.ids[k_indices==i] for i in range(numthreads)]
+            data_chunks = [self.data[k_indices==i] for i in range(numthreads)]
+            error_chunks = [self.errors[k_indices==i] for i in range(numthreads)]
+
+            n_per_process = [len(data_chunk) for data_chunk in data_chunks]
+
+            #save new id order
+            P_dict[self.id] = np.concatenate(id_chunks)
+
+        elif integration=='full':
+            n_per_process = int( np.ceil( len(self.data) / float(numthreads) ) )
+            data_chunks = [ self.data[i:i+n_per_process] for i in xrange(0, N, n_per_process) ]
+            error_chunks = [ self.errors[i:i+n_per_process] for i in xrange(0, N, n_per_process) ]
+
+            P_dict[self.id] = self.ids
+
+        else:
+            raise ValueError('Choose integration=\'full\' or \'tree\'')
+
+        #median of errors along each filter axis
+        sigmas = [np.median(error_chunk.T) for error_chunk in error_chunks]
 
         #multiprocessing
         print "#Multiprocessing checks:"
@@ -138,8 +164,6 @@ class Targets:
         print "    Number of targets per process: ", n_per_process
         print "    Number of target chunks, error chunks: ", len(data_chunks), len(error_chunks)
 
-        #median of errors along each filter axis
-        P_dict = {}
         pool = Pool(processes=numthreads)
         
         for z_range in zranges:
@@ -149,7 +173,8 @@ class Targets:
             start_work = time.time()
 
             results = pool.map(Pwrapper, itertools.izip( data_chunks, error_chunks, 
-                                                         itertools.repeat(template_data) ) )
+                                                         itertools.repeat(template_data),
+                                                         sigmas) )
         
             P_dict[str(z_range)] = np.concatenate(results)
 
