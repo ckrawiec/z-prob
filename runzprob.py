@@ -69,12 +69,16 @@ def printtime():
     print "#"+now
 
 def writetofile(params, Pdict, targets):
-    col_defs = [fits.Column(name=params['target_id_column'], format='K', array=targets.ids)]
+    col_defs = [fits.Column(name=targets.id, format='K', array=Pdict[targets.id])]
         
     P_norm = np.zeros(len(targets.data))
     for k in Pdict.keys():
+        if k==targets.id:
+            continue
         P_norm += Pdict[k]
     for k in Pdict.keys():
+        if k==targets.id:
+            continue
         col_defs.append(fits.Column(name='P'+k, format='D', array=Pdict[k]/P_norm))
 
     col_defs.append(fits.Column(name='PNORM', format='D', array=P_norm))
