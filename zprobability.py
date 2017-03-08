@@ -75,7 +75,7 @@ def Ptree(vals, errs, truevals, treeunit):
 
     if lencheck>0:
         print "Warning: ball query returned >1m points for {} targets ({}%).".format(lencheck, 
-                                                                                     float(lencheck)/len(vals))
+                                                                                     float(lencheck)/len(vals) * 100.)
     return np.array(out)
 
 def Pwrapper(args):
@@ -132,12 +132,16 @@ class Targets:
         P_dict = {}
 
         if integration=='tree':
-            centers, _ = kmeans(self.errors, numthreads)
-            k_indices, _ = vq(self.errors, centers)
+            #kmeans does not take NaNs
+            not_nan = ~np.isnan(self.errors)
+            e_mask = np.where([np.all(inan) for inan in not_nan])
+            
+            centers, _ = kmeans(self.errors[e_mask], numthreads)
+            k_indices, _ = vq(self.errors[e_mask], centers)
 
-            id_chunks = [self.ids[k_indices==i] for i in range(numthreads)]
-            data_chunks = [self.data[k_indices==i] for i in range(numthreads)]
-            error_chunks = [self.errors[k_indices==i] for i in range(numthreads)]
+            id_chunks = [self.ids[e_mask][k_indices==i] for i in range(numthreads)]
+            data_chunks = [self.data[e_mask][k_indices==i] for i in range(numthreads)]
+            error_chunks = [self.errors[e_mask][k_indices==i] for i in range(numthreads)]
 
             n_per_process = [len(data_chunk) for data_chunk in data_chunks]
 
@@ -155,7 +159,10 @@ class Targets:
             raise ValueError('Choose integration=\'full\' or \'tree\'')
 
         #median of errors along each filter axis
-        sigmas = [np.median(error_chunk.T) for error_chunk in error_chunks]
+        sigmas = [np.median(error_chunk.T, axis=1) for error_chunk in error_chunks]
+        print "#Median errors used in tree:"
+        for sigma in sigmas:
+            print sigma, "\n"
 
         #multiprocessing
         print "#Multiprocessing checks:"
