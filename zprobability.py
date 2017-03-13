@@ -1,5 +1,6 @@
 import itertools
 import time
+import random
 import numpy as np
 from scipy.cluster.vq import kmeans, vq
 from multiprocessing import Pool
@@ -62,8 +63,11 @@ def Ptree(vals, errs, truevals, treeunit):
     for val, err in zip(vals, errs):
         #get nearest neighbors within query_radius to target
         inear = truetree.query_ball_point(val/treeunit, r=query_radius)
-        if len(inear)>1000000.:
+        factor = 1.
+        if len(inear)>20000:
             lencheck+=1
+            inear = random.sample(inear, 20000)
+            factor = len(inear)/20000.
 
         #data of nearest neighbors
         truearr = truetree.data[inear] * treeunit
@@ -71,7 +75,7 @@ def Ptree(vals, errs, truevals, treeunit):
         Ls = likelihoods(val, err, truearr)
 
         #sum likelihoods
-        out.append(np.sum(Ls))
+        out.append(np.sum(Ls) * factor)
 
     if lencheck>0:
         print "Warning: ball query returned >1m points for {} targets ({}%).".format(lencheck, 
