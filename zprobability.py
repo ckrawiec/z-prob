@@ -1,6 +1,7 @@
 import itertools
 import time
 import random
+import sys
 import numpy as np
 from scipy.cluster.vq import kmeans, vq
 from multiprocessing import Pool
@@ -78,8 +79,8 @@ def Ptree(vals, errs, truevals, treeunit):
         out.append(np.sum(Ls) * factor)
 
     if lencheck>0:
-        print "Warning: ball query returned >1m points for {} targets ({}%).".format(lencheck, 
-                                                                                     float(lencheck)/len(vals) * 100.)
+        sys.stderr.write("Warning: ball query returned >1m points for {} targets ({}%).\n".format(lencheck, 
+                                                                                                  float(lencheck)/len(vals) * 100.))
     return np.array(out)
 
 def Pwrapper(args):
@@ -94,7 +95,7 @@ def Pwrapper(args):
 
 class Templates:
        
-    def __init__(self, filename, idcolumn, datacolumn, zcolumn, filters):
+    def __init__(self, filename, idcolumn, datacolumn, zcolumn, filters, starcol=None, starid=None):
         #read in data and save columns
         data = fits.open(filename)[1].data
 
@@ -103,11 +104,15 @@ class Templates:
         self.ids = data[idcolumn]
         self.redshifts = data[zcolumn]
         
+        if starcol:
+            self.starmask = (data[starcol]==starid)
+
         del data
         
     def getMask(self, zrange):
         z_mask = (self.redshifts > np.min(zrange)) & (self.redshifts < np.max(zrange))
         return z_mask
+
         
 class Targets:
 
@@ -125,7 +130,7 @@ class Targets:
         
         del data
 
-    def calcProbabilities(self, templates, zranges, numthreads, integration, queryradius=None):
+    def calcProbabilities(self, templates, zranges, numthreads, integration, queryradius=None, stars=False):
         global integrate
         integrate = integration
         global query_radius
@@ -191,6 +196,16 @@ class Targets:
 
             work_time = time.time() - start_work
             print "    Work completed in {} s".format(work_time)
+
+        #stars
+        if stars:
+            template_data = templates.data[ templates.starmask ]
+            sys.stderr.write("Number of star templates: {}\n".format( len(template_data) )
+
+            results = pool.map(Pwrapper, itertools.izip( data_chunks, error_chunks,
+                                                         itertools.repeat(template_data),
+                                                         sigmas) )
+            P_dict['STARS'] = np.concatenate(results)
 
         pool.close()
         return P_dict

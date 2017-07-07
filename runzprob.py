@@ -31,6 +31,12 @@ def parseconfig(config_file):
     
     params['filters'] = config.get('parameters','filters')
     params['redshift_ranges'] = json.loads(config.get('parameters','redshift_ranges'))
+    if config.has_option('parameters', 'stars'):
+        params['star_column'] = config.get('parameters','star_column')
+        params['star_id'] = config.get('parameters','star_id')
+    else:
+        params['star_column'] = None
+        params['star_id'] = None
 
     params['num_threads'] = config.getint('parameters','num_threads')
     params['integration'] = config.get('parameters','integration')
@@ -111,7 +117,9 @@ def main(args):
                                 params['template_id_column'],
                                 params['template_data_column'],
                                 params['redshift_column'],
-                                params['filters'])
+                                params['filters'],
+                                params['star_column'],
+                                params['star_id'])
 
     targets = zprob.Targets(params['target_file'],
                             params['target_id_column'],
