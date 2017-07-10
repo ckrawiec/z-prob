@@ -1,3 +1,4 @@
+import sys
 import itertools
 import time
 import random
@@ -53,41 +54,62 @@ def P(vals, errs, truevals, nchunks=500, ntruechunks=1000):
     
     return out
 
-def Ptree(vals, errs, truevals, treeunit):
-    out = []
-    lencheck = 0
+def Ptree(vals, errs, truevals):
+    #do this for each data chunk, cycle through later
+    #kmeans does not take NaNs
+    #not_nan = ~np.isnan(errs)
+    #e_mask = np.where([np.all(inan) for inan in not_nan])
+    
+    n_clusters = 10
+    indices = np.arange(len(vals))
+    centers, _ = kmeans(errs, n_clusters)
+    k_indices, _ = vq(errs, centers)
 
-    #build truth tree 
-    truetree = ckdtree.cKDTree(truevals/treeunit)
+    ind_chunks = [indices[k_indices==i] for i in range(n_clusters)]
+    val_chunks = [vals[k_indices==i] for i in range(n_clusters)]
+    err_chunks = [errs[k_indices==i] for i in range(n_clusters)]
 
-    for val, err in zip(vals, errs):
-        #get nearest neighbors within query_radius to target
-        inear = truetree.query_ball_point(val/treeunit, r=query_radius)
-        factor = 1.
-        if len(inear)>20000:
-            lencheck+=1
-            inear = random.sample(inear, 20000)
-            factor = len(inear)/20000.
+    allout = []
+    for ichunk in range(len(val_chunks)):
+        out = []
+        lencheck = 0
 
-        #data of nearest neighbors
-        truearr = truetree.data[inear] * treeunit
+        #build truth tree 
+        treeunit =  np.median(err_chunks[ichunk].T, axis=1)
+        truetree = ckdtree.cKDTree(truevals/treeunit)
 
-        Ls = likelihoods(val, err, truearr)
+        for val, err in zip(val_chunks[ichunk], err_chunks[ichunk]):
+            #get nearest neighbors within query_radius to target
+            inear = truetree.query_ball_point(val/treeunit, r=query_radius)
+            factor = 1.
+            if len(inear)>20000:
+                lencheck+=1
+                factor = len(inear)/20000.
+                inear = random.sample(inear, 20000)
 
-        #sum likelihoods
-        out.append(np.sum(Ls) * factor)
+            #data of nearest neighbors
+            truearr = truetree.data[inear] * treeunit
 
-    if lencheck>0:
-        print "Warning: ball query returned >1m points for {} targets ({}%).".format(lencheck, 
-                                                                                     float(lencheck)/len(vals) * 100.)
-    return np.array(out)
+            Ls = likelihoods(val, err, truearr)
+
+            #sum likelihoods
+            out.append(np.sum(Ls) * factor)
+
+        if lencheck>0:
+            print "Warning: ball query returned >1m points for {} targets ({}%).".format(lencheck, 
+                                                                                         float(lencheck)/len(vals) * 100.)
+        allout.append(np.array(out))
+    
+    shuff = np.concatenate(allout) 
+    inds = np.argsort(np.concatenate(ind_chunks))
+    
+    return shuff[inds]
 
 def Pwrapper(args):
     if integrate=='tree':
         return Ptree(*args)
     elif integrate=='full':
-        #exclude last argument
-        return P(*args[:-1])
+        return P(*args)
     else:
         raise ValueError('Choose integration=\'full\' or \'tree\'')
     
@@ -135,38 +157,15 @@ class Targets:
 
         P_dict = {}
 
-        if integration=='tree':
-            #kmeans does not take NaNs
-            not_nan = ~np.isnan(self.errors)
-            e_mask = np.where([np.all(inan) for inan in not_nan])
-            
-            centers, _ = kmeans(self.errors[e_mask], numthreads)
-            k_indices, _ = vq(self.errors[e_mask], centers)
+        n_per_process = int( np.ceil( len(self.data) / float(numthreads) ) )
+        data_chunks = [ self.data[i:i+n_per_process] for i in xrange(0, N, n_per_process) ]
+        error_chunks = [ self.errors[i:i+n_per_process] for i in xrange(0, N, n_per_process) ]
+        
+        P_dict[self.id] = self.ids
 
-            id_chunks = [self.ids[e_mask][k_indices==i] for i in range(numthreads)]
-            data_chunks = [self.data[e_mask][k_indices==i] for i in range(numthreads)]
-            error_chunks = [self.errors[e_mask][k_indices==i] for i in range(numthreads)]
-
-            n_per_process = [len(data_chunk) for data_chunk in data_chunks]
-
-            #save new id order
-            P_dict[self.id] = np.concatenate(id_chunks)
-
-        elif integration=='full':
-            n_per_process = int( np.ceil( len(self.data) / float(numthreads) ) )
-            data_chunks = [ self.data[i:i+n_per_process] for i in xrange(0, N, n_per_process) ]
-            error_chunks = [ self.errors[i:i+n_per_process] for i in xrange(0, N, n_per_process) ]
-
-            P_dict[self.id] = self.ids
-
-        else:
-            raise ValueError('Choose integration=\'full\' or \'tree\'')
-
-        #median of errors along each filter axis
-        sigmas = [np.median(error_chunk.T, axis=1) for error_chunk in error_chunks]
-        print "#Median errors used in tree:"
-        for sigma in sigmas:
-            print sigma, "\n"
+#        print "#Median errors used in tree:"
+#        for sigma in sigmas:
+#            print sigma, "\n"
 
         #multiprocessing
         print "#Multiprocessing checks:"
@@ -184,8 +183,7 @@ class Targets:
             start_work = time.time()
 
             results = pool.map(Pwrapper, itertools.izip( data_chunks, error_chunks, 
-                                                         itertools.repeat(template_data),
-                                                         sigmas) )
+                                                         itertools.repeat(template_data) ))
         
             P_dict[str(z_range)] = np.concatenate(results)
 
@@ -203,10 +201,11 @@ class Targets:
         z_mask = templates.getMask(z_range_tot)
         template_zs = templates.redshifts[z_mask]
         template_ids = templates.ids[z_mask]
+
         template_data = templates.data[z_mask]
 
         col_defs = [fits.Column(name='template_z', format='D', array=template_zs),
-                    fits.Column(name='template_id', format='K', array=template_ids)]
+                    fits.Column(name='template_id', format='A10', array=template_ids)]
         
         for n in range(ntest):
             template_Ls = likelihoods(self.data[n], self.errors[n], template_data)
@@ -221,7 +220,7 @@ class Targets:
         tb1_hdu = fits.BinTableHDU.from_columns(fits.ColDefs(col_defs), nrows=len(template_data), header=tb1_hdr)
 
         #save results of different methods
-        id_col = fits.Column(name=self.id, format='K', array=debug_ids)
+        id_col = fits.Column(name=self.id, format='A10', array=debug_ids)
 
         ##full integration (optimized summing)
         Pfull_dict = self.calcProbabilities(templates, zranges, numthreads, 'full')
