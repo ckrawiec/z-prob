@@ -31,9 +31,13 @@ def parseconfig(config_file):
     
     params['filters'] = config.get('parameters','filters')
     params['redshift_ranges'] = json.loads(config.get('parameters','redshift_ranges'))
-    if config.has_option('parameters', 'stars'):
+
+    params['stars'] = config.getboolean('parameters','stars')
+    if params['stars']:
+        sys.stderr.write('stars is True\n')
         params['star_column'] = config.get('parameters','star_column')
         params['star_id'] = config.get('parameters','star_id')
+        sys.stderr.write('{}, {}\n'.format(params['star_column'], params['star_id']))
     else:
         params['star_column'] = None
         params['star_id'] = None

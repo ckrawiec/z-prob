@@ -103,14 +103,21 @@ class Templates:
         self.data = np.array( zip( *[data[datacolumn.format(f)] for f in filters] ) )
         self.ids = data[idcolumn]
         self.redshifts = data[zcolumn]
-        
+
         if starcol:
+            sys.stderr.write('starcol is true\n')
             self.starmask = (data[starcol]==starid)
+        else:
+            self.starmask = None
 
         del data
         
     def getMask(self, zrange):
-        z_mask = (self.redshifts > np.min(zrange)) & (self.redshifts < np.max(zrange))
+        if self.starmask is not None:
+            sys.stderr.write('starmask is true\n')
+            z_mask = (self.redshifts > np.min(zrange)) & (self.redshifts < np.max(zrange)) & (~self.starmask)
+        else:
+            z_mask = (self.redshifts > np.min(zrange)) & (self.redshifts < np.max(zrange)) 
         return z_mask
 
         
@@ -130,7 +137,7 @@ class Targets:
         
         del data
 
-    def calcProbabilities(self, templates, zranges, numthreads, integration, queryradius=None, stars=False):
+    def calcProbabilities(self, templates, zranges, numthreads, integration, queryradius=None):
         global integrate
         integrate = integration
         global query_radius
@@ -198,9 +205,9 @@ class Targets:
             print "    Work completed in {} s".format(work_time)
 
         #stars
-        if stars:
+        if templates.starmask is not None:
             template_data = templates.data[ templates.starmask ]
-            sys.stderr.write("Number of star templates: {}\n".format( len(template_data) )
+            sys.stderr.write("Number of star templates: {}\n".format( len(template_data) ))
 
             results = pool.map(Pwrapper, itertools.izip( data_chunks, error_chunks,
                                                          itertools.repeat(template_data),
