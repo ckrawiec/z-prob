@@ -106,7 +106,10 @@ class Templates:
 
         if starcol:
             sys.stderr.write('starcol is true\n')
+            sys.stderr.write('starcol, starid = {}, {}\n'.format(starcol, starid))
+            
             self.starmask = (data[starcol]==starid)
+            sys.stderr.write('len(data) = {}, len(starmask) = {}\n'.format(len(data), len(data[self.starmask])))
         else:
             self.starmask = None
 
