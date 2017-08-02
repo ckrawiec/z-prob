@@ -207,6 +207,9 @@ class Targets:
             work_time = time.time() - start_work
             print "    Work completed in {} s".format(work_time)
 
+        pool.close()
+
+        pool = Pool(processes=numthreads)
         #stars
         if templates.starmask is not None:
             template_data = templates.data[ templates.starmask ]
