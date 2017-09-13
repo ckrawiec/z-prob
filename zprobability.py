@@ -207,7 +207,7 @@ class Targets:
         col_defs = [fits.Column(name='template_z', format='D', array=template_zs),
                     fits.Column(name='template_id', format='A10', array=template_ids)]
         
-        for n in range(ntest):
+        for n in range(len(debug_ids)):
             template_Ls = likelihoods(self.data[n], self.errors[n], template_data)
             col_defs.append(fits.Column(name=str(int(debug_ids[n])), format='D', array=template_Ls))
 
@@ -244,7 +244,7 @@ class Targets:
         
         tb2_hdr = fits.Header()
         tb2_hdr['COMMENT'] = "Results from different methods."
-        tb2_hdu = fits.BinTableHDU.from_columns(fits.ColDefs(col_defs), nrows=ntest, header=tb2_hdr)
+        tb2_hdu = fits.BinTableHDU.from_columns(fits.ColDefs(col_defs), nrows=len(debug_ids), header=tb2_hdr)
             
         pri_hdu = fits.PrimaryHDU(header=pri_hdr)
        
