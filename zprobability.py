@@ -95,23 +95,15 @@ def Pwrapper(args):
 
 class Templates:
        
-    def __init__(self, filename, idcolumn, datacolumn, zcolumn, filters, starcol=None, starid=None):
+    def __init__(self, filename, idcolumn, datacolumn, filters, zcolumn=None):
         #read in data and save columns
         data = fits.open(filename)[1].data
 
         self.filename = filename
         self.data = np.array( zip( *[data[datacolumn.format(f)] for f in filters] ) )
         self.ids = data[idcolumn]
-        self.redshifts = data[zcolumn]
-
-        if starcol:
-            sys.stderr.write('starcol is true\n')
-            sys.stderr.write('starcol, starid = {}, {}\n'.format(starcol, starid))
-            
-            self.starmask = (data[starcol]==starid)
-            sys.stderr.write('len(data) = {}, len(starmask) = {}\n'.format(len(data), len(data[self.starmask])))
-        else:
-            self.starmask = None
+        if zcolumn:
+            self.redshifts = data[zcolumn]
 
         del data
         
@@ -140,7 +132,7 @@ class Targets:
         
         del data
 
-    def calcProbabilities(self, templates, zranges, numthreads, integration, queryradius=None):
+    def calcProbabilities(self, galaxies, stars, zranges, numthreads, integration, queryradius=None):
         global integrate
         integrate = integration
         global query_radius
@@ -166,6 +158,12 @@ class Targets:
 
             #save new id order
             P_dict[self.id] = np.concatenate(id_chunks)
+            
+            #median of errors along each filter axis
+            sigmas = [np.median(error_chunk.T, axis=1) for error_chunk in error_chunks]
+            print "#Median errors used in tree:"
+            for sigma in sigmas:
+                print sigma, "\n"
 
         elif integration=='full':
             n_per_process = int( np.ceil( len(self.data) / float(numthreads) ) )
@@ -177,12 +175,6 @@ class Targets:
         else:
             raise ValueError('Choose integration=\'full\' or \'tree\'')
 
-        #median of errors along each filter axis
-        sigmas = [np.median(error_chunk.T, axis=1) for error_chunk in error_chunks]
-        print "#Median errors used in tree:"
-        for sigma in sigmas:
-            print sigma, "\n"
-
         #multiprocessing
         print "#Multiprocessing checks:"
         print "    Number of total targets: {}\n".format(N)
@@ -193,7 +185,7 @@ class Targets:
         pool = Pool(processes=numthreads)
         
         for z_range in zranges:
-            template_data = templates.data[ templates.getMask(z_range) ]
+            template_data = galaxies.data[ galaxies.getMask(z_range) ]
             print "Number of templates in redshift range {}: {}".format( str(z_range), len(template_data) )
 
             start_work = time.time()
@@ -209,16 +201,15 @@ class Targets:
 
         pool.close()
 
-        pool = Pool(processes=numthreads)
         #stars
-        if templates.starmask is not None:
-            template_data = templates.data[ templates.starmask ]
-            sys.stderr.write("Number of star templates: {}\n".format( len(template_data) ))
+        pool = Pool(processes=numthreads)
 
-            results = pool.map(Pwrapper, itertools.izip( data_chunks, error_chunks,
-                                                         itertools.repeat(template_data),
-                                                         sigmas) )
-            P_dict['STARS'] = np.concatenate(results)
+        star_template_data = stars.data 
+        star_sigmas = []
+        results = pool.map(Pwrapper, itertools.izip( data_chunks, error_chunks,
+                                                     itertools.repeat(star_template_data),
+                                                     star_sigmas) )
+        P_dict['PSTAR'] = np.concatenate(results)
 
         pool.close()
         return P_dict

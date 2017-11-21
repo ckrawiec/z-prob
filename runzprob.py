@@ -120,10 +120,13 @@ def main(args):
     templates = zprob.Templates(params['template_file'],
                                 params['template_id_column'],
                                 params['template_data_column'],
-                                params['redshift_column'],
                                 params['filters'],
-                                params['star_column'],
-                                params['star_id'])
+                                params['redshift_column'])
+
+    stars = zprob.Templates(params['star_file'],
+                            params['star_id_column'],
+                            params['star_data_column'],
+                            params['filters'])
 
     targets = zprob.Targets(params['target_file'],
                             params['target_id_column'],
