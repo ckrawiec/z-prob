@@ -8,7 +8,7 @@ from multiprocessing import Pool
 from astropy.io import fits
 from scipy.spatial import ckdtree
 
-query_radius, integrate = None, None
+query_radius = None
 
 def likelihoods(val, err, truevals):
     """
@@ -54,7 +54,7 @@ def P(vals, errs, truevals, nchunks=500, ntruechunks=1000):
     
     return out
 
-def Ptree(vals, errs, truevals, treeunit):
+def Ptree(vals, errs, truevals, treeunit=None, query_radius=None):
     out = []
     lencheck = 0
 
@@ -84,11 +84,11 @@ def Ptree(vals, errs, truevals, treeunit):
     return np.array(out)
 
 def Pwrapper(args):
-    if integrate=='tree':
-        return Ptree(*args)
-    elif integrate=='full':
+    if args[0]=='tree':
+        return Ptree(*args[1:])
+    elif args[0]=='full':
         #exclude last argument
-        return P(*args[:-1])
+        return P(*args[1:-1])
     else:
         raise ValueError('Choose integration=\'full\' or \'tree\'')
     
@@ -132,9 +132,7 @@ class Targets:
         
         del data
 
-    def calcProbabilities(self, galaxies, stars, zranges, numthreads, integration, queryradius=None):
-        global integrate
-        integrate = integration
+    def calcProbabilities(self, galaxies, stars, zranges, numthreads, galaxyintegration, queryradius=None):
         global query_radius
         query_radius = queryradius
     
@@ -142,33 +140,22 @@ class Targets:
 
         P_dict = {}
 
-        if integration=='tree':
-            #kmeans does not take NaNs
-            not_nan = ~np.isnan(self.errors)
-            e_mask = np.where([np.all(inan) for inan in not_nan])
-            
-            centers, _ = kmeans(self.errors[e_mask], numthreads)
-            k_indices, _ = vq(self.errors[e_mask], centers)
+        if galaxyintegration=='tree':
+            id_chunks, data_chunks, error_chunks, sigmas = self.kSeparate(numthreads)
 
-            id_chunks = [self.ids[e_mask][k_indices==i] for i in range(numthreads)]
-            data_chunks = [self.data[e_mask][k_indices==i] for i in range(numthreads)]
-            error_chunks = [self.errors[e_mask][k_indices==i] for i in range(numthreads)]
-
-            n_per_process = [len(data_chunk) for data_chunk in data_chunks]
-
-            #save new id order
-            P_dict[self.id] = np.concatenate(id_chunks)
-            
-            #median of errors along each filter axis
-            sigmas = [np.median(error_chunk.T, axis=1) for error_chunk in error_chunks]
-            print "#Median errors used in tree:"
+            print "#Median errors used in galaxy tree:"
             for sigma in sigmas:
                 print sigma, "\n"
 
-        elif integration=='full':
+            #save new id order
+            P_dict[self.id] = np.concatenate(id_chunks)            
+
+        elif galaxyintegration=='full':
             n_per_process = int( np.ceil( len(self.data) / float(numthreads) ) )
             data_chunks = [ self.data[i:i+n_per_process] for i in xrange(0, N, n_per_process) ]
             error_chunks = [ self.errors[i:i+n_per_process] for i in xrange(0, N, n_per_process) ]
+
+            sigmas = None
 
             P_dict[self.id] = self.ids
 
@@ -176,42 +163,49 @@ class Targets:
             raise ValueError('Choose integration=\'full\' or \'tree\'')
 
         #multiprocessing
-        print "#Multiprocessing checks:"
-        print "    Number of total targets: {}\n".format(N)
-        print "    Number of processes: ", numthreads
-        print "    Number of targets per process: ", n_per_process
-        print "    Number of target chunks, error chunks: ", len(data_chunks), len(error_chunks)
+        sys.stderr.write("#Multiprocessing checks:\n")
+        sys.stderr.write("    Number of total targets: {}\n".format(N))
+        sys.stderr.write("    Number of processes: {}\n".format(numthreads))
+        sys.stderr.write("    Number of targets per process: {}\n".format(n_per_process))
+        sys.stderr.write("    Number of target chunks, error chunks: {}, {}\n".format(len(data_chunks), len(error_chunks)))
 
         pool = Pool(processes=numthreads)
         
         for z_range in zranges:
             template_data = galaxies.data[ galaxies.getMask(z_range) ]
-            print "Number of templates in redshift range {}: {}".format( str(z_range), len(template_data) )
+            sys.stderr.write("Number of templates in redshift range {}: {}\n".format( str(z_range), len(template_data) ))
 
             start_work = time.time()
 
-            results = pool.map(Pwrapper, itertools.izip( data_chunks, error_chunks, 
-                                                         itertools.repeat(template_data),
-                                                         sigmas) )
+            results = pool.map(Pwrapper, itertools.izip( galaxyintegration, data_chunks, error_chunks, 
+                                                         itertools.repeat(template_data), sigmas))
         
             P_dict[str(z_range)] = np.concatenate(results)
 
             work_time = time.time() - start_work
-            print "    Work completed in {} s".format(work_time)
+            sys.stderr.write("    Work completed in {} s\n".format(work_time))
 
         pool.close()
+
+        id_chunks, data_chunks, error_chunks, sigmas = self.kSeparate(numthreads)
+
+        print "#Median errors used in tree:"
+        for sigma in sigmas:
+            print sigma, "\n"
+        #save new id order
+        P_dict[self.id] = np.concatenate(id_chunks)
+        ###NEED to make sure this does not conflict if galaxyintegrate=='full'
 
         #stars
         pool = Pool(processes=numthreads)
 
-        star_template_data = stars.data 
-        star_sigmas = []
         results = pool.map(Pwrapper, itertools.izip( data_chunks, error_chunks,
                                                      itertools.repeat(star_template_data),
-                                                     star_sigmas) )
+                                                     sigmas) )
         P_dict['PSTAR'] = np.concatenate(results)
 
         pool.close()
+
         return P_dict
 
     def debug(self, templates, ntest, zranges, numthreads, output):
@@ -270,3 +264,25 @@ class Targets:
        
         hdu_list = fits.HDUList([pri_hdu, tb1_hdu, tb2_hdu])
         hdu_list.writeto(output, clobber=True)
+
+    def kSeparate(self, numthreads):    
+        #kmeans does not take NaNs
+        not_nan = ~np.isnan(self.errors)
+        e_mask = np.where([np.all(inan) for inan in not_nan])
+    
+        #separate data by closest errors
+        centers, _ = kmeans(self.errors[e_mask], numthreads)
+        k_indices, _ = vq(self.errors[e_mask], centers)
+        
+        id_chunks = [self.ids[e_mask][k_indices==i] for i in range(numthreads)]
+        data_chunks = [self.data[e_mask][k_indices==i] for i in range(numthreads)]
+        error_chunks = [self.errors[e_mask][k_indices==i] for i in range(numthreads)]
+
+        n_per_process = [len(data_chunk) for data_chunk in data_chunks]
+
+        #median of errors along each filter axis
+        sigmas = [np.median(error_chunk.T, axis=1) for error_chunk in error_chunks]
+        
+        return id_chunks, data_chunks, error_chunks, sigmas
+
+

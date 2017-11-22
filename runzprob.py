@@ -23,7 +23,8 @@ def parseconfig(config_file):
 
     params = {}
 
-    params['template_file'] = config.get('I/O','template_file')
+    params['galaxy_template_file'] = config.get('I/O','galaxy_template_file')
+    params['star_template_file'] = config.get('I/O','star_template_file')
     params['target_file'] = config.get('I/O','target_file')
     params['output_file'] = config.get('I/O','output_file')
     if os.path.exists(params['output_file']):
@@ -32,16 +33,6 @@ def parseconfig(config_file):
     params['filters'] = config.get('parameters','filters')
     params['redshift_ranges'] = json.loads(config.get('parameters','redshift_ranges'))
 
-    params['stars'] = config.getboolean('parameters','stars')
-    if params['stars']:
-        sys.stderr.write('stars is True\n')
-        params['star_column'] = config.get('parameters','star_column')
-        params['star_id'] = config.get('parameters','star_id')
-        sys.stderr.write('{}, {}\n'.format(params['star_column'], params['star_id']))
-    else:
-        params['star_column'] = None
-        params['star_id'] = None
-
     params['num_threads'] = config.getint('parameters','num_threads')
     params['integration'] = config.get('parameters','integration')
     global query_radius
@@ -49,9 +40,12 @@ def parseconfig(config_file):
     if params['integration'] == 'tree':
         query_radius = config.getfloat('parameters','query_radius')
         
-    params['template_id_column'] = config.get('data','template_id_column')
-    params['template_data_column'] = config.get('data','template_data_column')
+    params['galaxy_template_id_column'] = config.get('data','galaxy_template_id_column')
+    params['galaxy_template_data_column'] = config.get('data','galaxy_template_data_column')
     params['redshift_column'] = config.get('data','redshift_column')
+
+    params['star_template_id_column'] = config.get('data','star_template_id_column')
+    params['star_template_data_column'] = config.get('data','star_template_data_column')
     
     params['target_id_column'] = config.get('data','target_id_column')
     params['target_data_column'] = config.get('data','target_data_column')
@@ -95,10 +89,11 @@ def writetofile(params, Pdict, targets):
 
     pri_hdr = fits.Header()
     tb_hdr = fits.Header()
-    tb_hdr['COMMENT'] = "Bayesian redshift probabilities for data in {} using photo-zs of templates from {}. \
+    tb_hdr['COMMENT'] = "Bayesian redshift probabilities for data in {} using photo-zs of templates from {} and stars from {}. \
                          Data vectors were comprised of {} for bands in {} with matching errors. \
                          Columns reported here are \'P[zmin, zmax]\'".format(params['target_file'],
-                                                                             params['template_file'],
+                                                                             params['galaxy_template_file'],
+                                                                             params['star_template_file'],
                                                                              params['target_data_column'],
                                                                              params['filters'])
                                                                         
@@ -117,16 +112,16 @@ def main(args):
 
     setup_start = time.time()
 
-    templates = zprob.Templates(params['template_file'],
-                                params['template_id_column'],
-                                params['template_data_column'],
-                                params['filters'],
-                                params['redshift_column'])
+    galaxy_templates = zprob.Templates(params['galaxy_template_file'],
+                                       params['galaxy_template_id_column'],
+                                       params['galaxy_template_data_column'],
+                                       params['filters'],
+                                       params['redshift_column'])
 
-    stars = zprob.Templates(params['star_file'],
-                            params['star_id_column'],
-                            params['star_data_column'],
-                            params['filters'])
+    star_templates = zprob.Templates(params['star_template_file'],
+                                     params['star_template_id_column'],
+                                     params['star_template_data_column'],
+                                     params['filters'])
 
     targets = zprob.Targets(params['target_file'],
                             params['target_id_column'],
@@ -140,7 +135,7 @@ def main(args):
     print "Loaded data in {} s".format(setup_end-setup_start)
     
     if params['debug']==True:
-        targets.debug(templates,
+        targets.debug(galaxy_templates,
                       params['N_debug'],
                       params['redshift_ranges'],
                       params['num_threads'],
@@ -153,7 +148,8 @@ def main(args):
                                                                     params['target_end_index'])
 
     #get Bayesian probabilities using templates and redshift ranges    
-    P_dict = targets.calcProbabilities(templates,
+    P_dict = targets.calcProbabilities(galaxy_templates,
+                                       star_templates,
                                        params['redshift_ranges'],
                                        params['num_threads'],
                                        params['integration'],
