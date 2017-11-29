@@ -91,7 +91,7 @@ def Pwrapper(args):
         return P(*args[1:-1])
     else:
         raise ValueError('Choose integration=\'full\' or \'tree\'')
-    
+
 
 class Templates:
        
@@ -141,14 +141,11 @@ class Targets:
         P_dict = {}
 
         if galaxyintegration=='tree':
-            id_chunks, data_chunks, error_chunks, sigmas = self.kSeparate(numthreads)
+            index_chunks, data_chunks, error_chunks, sigmas = self.kSeparate(numthreads)
 
             print "#Median errors used in galaxy tree:"
             for sigma in sigmas:
                 print sigma, "\n"
-
-            #save new id order
-            P_dict[self.id] = np.concatenate(id_chunks)            
 
         elif galaxyintegration=='full':
             n_per_process = int( np.ceil( len(self.data) / float(numthreads) ) )
@@ -157,7 +154,7 @@ class Targets:
 
             sigmas = None
 
-            P_dict[self.id] = self.ids
+        P_dict[self.id] = self.ids
 
         else:
             raise ValueError('Choose integration=\'full\' or \'tree\'')
@@ -172,37 +169,48 @@ class Targets:
         pool = Pool(processes=numthreads)
         
         for z_range in zranges:
-            template_data = galaxies.data[ galaxies.getMask(z_range) ]
-            sys.stderr.write("Number of templates in redshift range {}: {}\n".format( str(z_range), len(template_data) ))
+            galaxy_template_data = galaxies.data[ galaxies.getMask(z_range) ]
+            sys.stderr.write("Number of templates in redshift range {}: {}\n".format( str(z_range), len(galaxy_template_data) ))
 
             start_work = time.time()
 
             results = pool.map(Pwrapper, itertools.izip( galaxyintegration, data_chunks, error_chunks, 
-                                                         itertools.repeat(template_data), sigmas))
+                                                         itertools.repeat(galaxy_template_data), sigmas))
         
-            P_dict[str(z_range)] = np.concatenate(results)
+            chain_results = np.concatenate(results)
+            
+            if galaxyintegration=='tree':
+                #kSeparate rearranged the order, put it back to match id column
+                sorted_back = np.argsort(np.concatenate(index_chunks))
+                final_results = np.concatenate(chain_results, np.array([[np.nan]*(len(sorted_back)-len(np.chain_results))]))
+                P_dict[str(z_range)] = final_results[sorted_back]
+                
+            elif galaxyintegration=='full':
+                P_dict[str(z_range)] = chain_results
 
             work_time = time.time() - start_work
             sys.stderr.write("    Work completed in {} s\n".format(work_time))
 
         pool.close()
 
-        id_chunks, data_chunks, error_chunks, sigmas = self.kSeparate(numthreads)
+        index_chunks, data_chunks, error_chunks, sigmas = self.kSeparate(numthreads)
 
         print "#Median errors used in tree:"
         for sigma in sigmas:
             print sigma, "\n"
-        #save new id order
-        P_dict[self.id] = np.concatenate(id_chunks)
-        ###NEED to make sure this does not conflict if galaxyintegrate=='full'
-
+        
         #stars
         pool = Pool(processes=numthreads)
 
         results = pool.map(Pwrapper, itertools.izip( data_chunks, error_chunks,
                                                      itertools.repeat(star_template_data),
                                                      sigmas) )
-        P_dict['PSTAR'] = np.concatenate(results)
+        
+        #kSeparate rearranged the order, put it back to match id column
+        sorted_back = np.argsort(np.concatenate(index_chunks))
+        chain_results = np.concatenate(results)
+        final_results = np.concatenate(chain_results, np.array([[np.nan]*(len(sorted_back)-len(np.chain_results))]))
+        P_dict['PSTAR'] = final_results[sorted_back]
 
         pool.close()
 
@@ -273,8 +281,11 @@ class Targets:
         #separate data by closest errors
         centers, _ = kmeans(self.errors[e_mask], numthreads)
         k_indices, _ = vq(self.errors[e_mask], centers)
+
+        #save indices of chunk pieces so can rearrange later
+        index = np.arange(len(self.ids))
         
-        id_chunks = [self.ids[e_mask][k_indices==i] for i in range(numthreads)]
+        index_chunks = [index[e_mask][k_indices==i] for i in range(numthreads)]
         data_chunks = [self.data[e_mask][k_indices==i] for i in range(numthreads)]
         error_chunks = [self.errors[e_mask][k_indices==i] for i in range(numthreads)]
 
@@ -282,7 +293,10 @@ class Targets:
 
         #median of errors along each filter axis
         sigmas = [np.median(error_chunk.T, axis=1) for error_chunk in error_chunks]
+
+        #account for NaNs
+        index_chunks.append(list(index[~e_mask]))
         
-        return id_chunks, data_chunks, error_chunks, sigmas
+        return index_chunks, data_chunks, error_chunks, sigmas
 
 
