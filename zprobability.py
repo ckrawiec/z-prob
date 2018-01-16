@@ -8,7 +8,6 @@ from multiprocessing import Pool
 from astropy.io import fits
 from scipy.spatial import ckdtree
 
-query_radius = None
 
 def likelihoods(val, err, truevals):
     """
@@ -54,26 +53,31 @@ def P(vals, errs, truevals, nchunks=500, ntruechunks=1000):
     
     return out
 
-def Ptree(vals, errs, truevals, treeunit=None, query_radius=None):
+def Ptree(vals, errs, truevals, treeunit=None, query_radius=3.):
     out = []
     lencheck = 0
 
     #build truth tree 
-    truetree = ckdtree.cKDTree(truevals/treeunit)
+    start_tree = time.time()
+    truetree = ckdtree.cKDTree(truevals/treeunit, balanced_tree=False, compact_nodes=False)
+    end_tree = time.time()
+    sys.stderr.write('tree created in {}s\n'.format(end_tree-start_tree))
 
     for val, err in zip(vals, errs):
         #get nearest neighbors within query_radius to target
         inear = truetree.query_ball_point(val/treeunit, r=query_radius)
         factor = 1.
-        if len(inear)>20000:
+        if len(inear)>1000000:
             lencheck+=1
-            inear = random.sample(inear, 20000)
-            factor = len(inear)/20000.
+            inear = random.sample(inear, 1000000)
+            factor = len(inear)/1000000.
 
         #data of nearest neighbors
         truearr = truetree.data[inear] * treeunit
-
+        
+        start_Ls = time.time()
         Ls = likelihoods(val, err, truearr)
+        end_Ls = time.time()
 
         #sum likelihoods
         out.append(np.sum(Ls) * factor)
@@ -108,11 +112,7 @@ class Templates:
         del data
         
     def getMask(self, zrange):
-        if self.starmask is not None:
-            sys.stderr.write('starmask is true\n')
-            z_mask = (self.redshifts > np.min(zrange)) & (self.redshifts < np.max(zrange)) & (~self.starmask)
-        else:
-            z_mask = (self.redshifts > np.min(zrange)) & (self.redshifts < np.max(zrange)) 
+        z_mask = (self.redshifts > np.min(zrange)) & (self.redshifts < np.max(zrange)) 
         return z_mask
 
         
@@ -132,13 +132,11 @@ class Targets:
         
         del data
 
-    def calcProbabilities(self, galaxies, stars, zranges, numthreads, galaxyintegration, queryradius=None):
-        global query_radius
-        query_radius = queryradius
-    
+    def calcProbabilities(self, galaxies, stars, zranges, numthreads, galaxyintegration):
         N = len(self.data)
 
         P_dict = {}
+        P_dict[self.id] = self.ids
 
         if galaxyintegration=='tree':
             index_chunks, data_chunks, error_chunks, sigmas = self.kSeparate(numthreads)
@@ -153,8 +151,6 @@ class Targets:
             error_chunks = [ self.errors[i:i+n_per_process] for i in xrange(0, N, n_per_process) ]
 
             sigmas = None
-
-        P_dict[self.id] = self.ids
 
         else:
             raise ValueError('Choose integration=\'full\' or \'tree\'')
@@ -174,16 +170,19 @@ class Targets:
 
             start_work = time.time()
 
-            results = pool.map(Pwrapper, itertools.izip( galaxyintegration, data_chunks, error_chunks, 
-                                                         itertools.repeat(galaxy_template_data), sigmas))
+            results = pool.map(Pwrapper, itertools.izip( itertools.repeat(galaxyintegration), data_chunks, error_chunks, 
+                                                         itertools.repeat(galaxy_template_data), itertools.repeat(sigmas)) )
         
             chain_results = np.concatenate(results)
             
             if galaxyintegration=='tree':
                 #kSeparate rearranged the order, put it back to match id column
                 sorted_back = np.argsort(np.concatenate(index_chunks))
-                final_results = np.concatenate(chain_results, np.array([[np.nan]*(len(sorted_back)-len(np.chain_results))]))
-                P_dict[str(z_range)] = final_results[sorted_back]
+                if len(sorted_back) > len(chain_results):
+                    final_results = np.concatenate(chain_results, np.array([[np.nan]*(len(sorted_back)-len(chain_results))]))
+                    P_dict[str(z_range)] = final_results[sorted_back]
+                else:
+                    P_dict[str(z_range)] = chain_results
                 
             elif galaxyintegration=='full':
                 P_dict[str(z_range)] = chain_results
@@ -202,15 +201,19 @@ class Targets:
         #stars
         pool = Pool(processes=numthreads)
 
-        results = pool.map(Pwrapper, itertools.izip( data_chunks, error_chunks,
-                                                     itertools.repeat(star_template_data),
-                                                     sigmas) )
+        starintegration = 'tree'
+        results = pool.map(Pwrapper, itertools.izip( itertools.repeat(starintegration), data_chunks, error_chunks,
+                                                     itertools.repeat(stars.data), sigmas ))
         
         #kSeparate rearranged the order, put it back to match id column
         sorted_back = np.argsort(np.concatenate(index_chunks))
         chain_results = np.concatenate(results)
-        final_results = np.concatenate(chain_results, np.array([[np.nan]*(len(sorted_back)-len(np.chain_results))]))
-        P_dict['PSTAR'] = final_results[sorted_back]
+
+        if len(sorted_back) > len(chain_results):
+            final_results = np.concatenate(chain_results, np.array([[np.nan]*(len(sorted_back)-len(chain_results))]))
+            P_dict['STAR'] = final_results[sorted_back]
+        else:
+            P_dict['STAR'] = chain_results
 
         pool.close()
 
@@ -277,7 +280,8 @@ class Targets:
         #kmeans does not take NaNs
         not_nan = ~np.isnan(self.errors)
         e_mask = np.where([np.all(inan) for inan in not_nan])
-    
+        not_e_mask = np.where([not np.all(inan) for inan in not_nan])
+
         #separate data by closest errors
         centers, _ = kmeans(self.errors[e_mask], numthreads)
         k_indices, _ = vq(self.errors[e_mask], centers)
@@ -295,7 +299,7 @@ class Targets:
         sigmas = [np.median(error_chunk.T, axis=1) for error_chunk in error_chunks]
 
         #account for NaNs
-        index_chunks.append(list(index[~e_mask]))
+        index_chunks.append(list(index[not_e_mask]))
         
         return index_chunks, data_chunks, error_chunks, sigmas
 

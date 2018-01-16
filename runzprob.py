@@ -152,8 +152,7 @@ def main(args):
                                        star_templates,
                                        params['redshift_ranges'],
                                        params['num_threads'],
-                                       params['integration'],
-                                       query_radius)
+                                       params['integration'])
         
     #write results to fits file
     writetofile(params, P_dict, targets)
