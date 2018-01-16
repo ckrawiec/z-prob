@@ -1,7 +1,9 @@
 run_script = '/home/ckrawiec/git/z-prob/runzprob.py'
 num_threads = 8
 mem_per_thread = '4G'
-n_groups = 1
+n_tab_groups = 1
+n_jobs_per_tab = 15
+n_targets_per_job = 1000000
 
 name = 'y1a1_gold_cosmosd04_cosmosdfull_matched_bothflagBRmasked_auto_griz_full_gauss_z4_6bins+stars'
 
@@ -13,22 +15,33 @@ target_file = '/home/ckrawiec/DES/data/y1a1_gold_d04_dfull_cosmos_matched_d04fla
 
 config_dict = {}
 
-for i in range(1, n_groups+1):
-
+for i in range(1, n_tab_groups+1):
+    start = 0
+    end = n_targets_per_job
+    
     tab_num = str(i).zfill(2)
-    config = '/home/ckrawiec/git/z-prob/config/{}.config'.format(name).format(tab_num)
-    oe = '/home/ckrawiec/jobscripts/output/zprob_{}.oe'.format(name).format(tab_num)
-    job = '/home/ckrawiec/jobscripts/zprob_{}.sh'.format(name).format(tab_num)
 
-    config_dict['tab_num'] = tab_num
-    config_dict['num_threads'] = num_threads
-    config_dict['galaxy_template_file'] = galaxy_template_file
-    config_dict['star_template_file'] = star_template_file
-    config_dict['target_file'] = target_file.format(tab_num)
-    config_dict['output_file'] = '/home/ckrawiec/DES/magnification/lbgselect/zproboutput/{}.fits'.format(name).format(tab_num)
+    for j in range(n_jobs_per_tab):
 
-    f = open(config, 'w')
-    f.write("""#config parameters
+        inds = '{}-{}'.format(start, end)
+
+        config = '/home/ckrawiec/git/z-prob/config/{}_{}.config'.format(name, inds).format(tab_num)
+        oe = '/home/ckrawiec/jobscripts/output/zprob_{}_{}.oe'.format(name, inds).format(tab_num)
+        job = '/home/ckrawiec/jobscripts/zprob_{}_{}.sh'.format(name, inds).format(tab_num)
+
+        config_dict['tab_num'] = tab_num
+        config_dict['start'] = start
+        config_dict['end'] = end
+
+        config_dict['num_threads'] = num_threads
+        config_dict['galaxy_template_file'] = galaxy_template_file
+        config_dict['star_template_file'] = star_template_file
+        config_dict['target_file'] = target_file.format(tab_num)
+        config_dict['output_file'] = '/home/ckrawiec/DES/magnification/lbgselect/zproboutput/{}_{}.fits'.format(name, inds).format(tab_num)
+
+        f = open(config, 'w')
+
+        f.write("""#config parameters
 
 [I/O]
 #file names
@@ -72,8 +85,8 @@ star_template_data_column = FLUX_AUTO_{}
 
 #specify indices to use slice of target data
 #if not specified, all are used
-target_start_index = 0
-target_end_index = 1000
+target_start_index = %(start)s
+target_end_index = %(end)s
 """ % config_dict)
     f.close()
 
@@ -82,10 +95,11 @@ target_end_index = 1000
     f.write('#$ -l h_vmem={}\n'.format(mem_per_thread))
     f.write('#$ -o {}\n'.format(oe))
     f.write('#$ -e {}\n'.format(oe))
-    f.write('#$ -N job'+tab_num)
+    f.write('#$ -N j{}_{}'.format(tab_num, j))
     f.write('\n\n')
     f.write('echo python {} {}\n'.format(run_script, config))
     f.write('python {} {}'.format(run_script, config))
     f.close()
 
-
+    start += n_targets_per_job
+    end += n_targets_per_job
