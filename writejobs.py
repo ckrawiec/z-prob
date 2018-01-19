@@ -2,27 +2,26 @@ run_script = '/home/ckrawiec/git/z-prob/runzprob.py'
 num_threads = 8
 mem_per_thread = '4G'
 n_tab_groups = 1
-n_jobs_per_tab = 15
-n_targets_per_job = 1000000
+n_jobs_per_tab = 2500
+n_targets_per_job = 10000
 
-name = 'y1a1_gold_cosmosd04_cosmosdfull_matched_bothflagBRmasked_auto_griz_full_gauss_z4_6bins+stars'
+name = 'sva1_gold_y1dfullcosmos_flagBRmasked_auto_griz_full_gauss_z4_6bins+GalaxSVStars3sig'
 
-galaxy_template_file = '/home/ckrawiec/DES/data/y1a1_gold_d04_dfull_cosmos_matched_d04flagBRmasked_dfullflagBRmasked.fits'
+galaxy_template_file = '/home/ckrawiec/DES/data/y1a1_gold_dfull_cosmos_flagBRmasked.fits'
 
-star_template_file = '/home/ckrawiec/DES/data/y3_gold_v1.0_stars_flux_000001.fits'
+star_template_file = '/home/ckrawiec/DES/data/Galaxia_SV390deg_desflux_radec_good_regions_SPT-E.fits'
 
-target_file = '/home/ckrawiec/DES/data/y1a1_gold_d04_dfull_cosmos_matched_d04flagBRmasked_dfullflagBRmasked.fits'
+target_file = '/home/ckrawiec/DES/data/sva1_gold_auto_good_regions_no_cosmos.fits'
 
 config_dict = {}
 
 for i in range(1, n_tab_groups+1):
-    start = 0
-    end = n_targets_per_job
-    
     tab_num = str(i).zfill(2)
 
-    for j in range(n_jobs_per_tab):
+    start = 0
+    end = n_targets_per_job
 
+    for j in range(n_jobs_per_tab):
         inds = '{}-{}'.format(start, end)
 
         config = '/home/ckrawiec/git/z-prob/config/{}_{}.config'.format(name, inds).format(tab_num)
@@ -71,35 +70,35 @@ integration = full
 
 [data]
 #target column names, case sensitive
-target_id_column = COADD_OBJECTS_ID_d04
-target_data_column = FLUX_AUTO_{}_d04
-target_error_column = FLUXERR_AUTO_{}_d04
+target_id_column = COADD_OBJECTS_ID
+target_data_column = FLUX_AUTO_{}
+target_error_column = FLUXERR_AUTO_{}
 
 #template column names, case sensitive
-galaxy_template_id_column = COADD_OBJECTS_ID_dfull
-galaxy_template_data_column = FLUX_AUTO_{}_dfull
-redshift_column = zminchi2_dfull
+galaxy_template_id_column = COADD_OBJECTS_ID
+galaxy_template_data_column = FLUX_AUTO_{}
+redshift_column = zminchi2
 
-star_template_id_column = COADD_OBJECT_ID
-star_template_data_column = FLUX_AUTO_{}
+star_template_id_column = satid
+star_template_data_column = flux_des_{}
 
 #specify indices to use slice of target data
 #if not specified, all are used
 target_start_index = %(start)s
 target_end_index = %(end)s
 """ % config_dict)
-    f.close()
+        f.close()
 
-    f = open(job,'w')
-    f.write('#$ -pe omp {}\n'.format(num_threads))
-    f.write('#$ -l h_vmem={}\n'.format(mem_per_thread))
-    f.write('#$ -o {}\n'.format(oe))
-    f.write('#$ -e {}\n'.format(oe))
-    f.write('#$ -N j{}_{}'.format(tab_num, j))
-    f.write('\n\n')
-    f.write('echo python {} {}\n'.format(run_script, config))
-    f.write('python {} {}'.format(run_script, config))
-    f.close()
-
-    start += n_targets_per_job
-    end += n_targets_per_job
+        f = open(job,'w')
+        f.write('#$ -pe omp {}\n'.format(num_threads))
+        f.write('#$ -l h_vmem={}\n'.format(mem_per_thread))
+        f.write('#$ -o {}\n'.format(oe))
+        f.write('#$ -e {}\n'.format(oe))
+        f.write('#$ -N j{}_{}'.format(tab_num, j))
+        f.write('\n\n')
+        f.write('echo python {} {}\n'.format(run_script, config))
+        f.write('python {} {}'.format(run_script, config))
+        f.close()
+        
+        start += n_targets_per_job
+        end += n_targets_per_job
