@@ -77,10 +77,12 @@ target_error_column = FLUXERR_AUTO_{}
 #template column names, case sensitive
 galaxy_template_id_column = COADD_OBJECTS_ID
 galaxy_template_data_column = FLUX_AUTO_{}
+galaxy_area = 1. #sq. deg.
 redshift_column = zminchi2
 
 star_template_id_column = satid
 star_template_data_column = flux_des_{}
+star_area = 390. #sq. deg.
 
 #specify indices to use slice of target data
 #if not specified, all are used

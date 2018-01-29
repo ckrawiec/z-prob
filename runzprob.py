@@ -25,6 +25,7 @@ def parseconfig(config_file):
 
     params['galaxy_template_file'] = config.get('I/O','galaxy_template_file')
     params['star_template_file'] = config.get('I/O','star_template_file')
+
     params['target_file'] = config.get('I/O','target_file')
     params['output_file'] = config.get('I/O','output_file')
     if os.path.exists(params['output_file']):
@@ -42,10 +43,12 @@ def parseconfig(config_file):
         
     params['galaxy_template_id_column'] = config.get('data','galaxy_template_id_column')
     params['galaxy_template_data_column'] = config.get('data','galaxy_template_data_column')
+    params['galaxy_area'] = config.get('data','galaxy_area')
     params['redshift_column'] = config.get('data','redshift_column')
 
     params['star_template_id_column'] = config.get('data','star_template_id_column')
     params['star_template_data_column'] = config.get('data','star_template_data_column')
+    params['star_area'] = config.get('data','star_area')
     
     params['target_id_column'] = config.get('data','target_id_column')
     params['target_data_column'] = config.get('data','target_data_column')
@@ -79,6 +82,10 @@ def writetofile(params, Pdict, targets):
     for k in Pdict.keys():
         if k==targets.id:
             continue
+        elif k=='PSTAR':
+            Pdict[k] = Pdict[k]/float(params['star_area'])
+        else:
+            Pdict[k] = Pdict[k]/float(params['galaxy_area'])
         P_norm += Pdict[k]
     for k in Pdict.keys():
         if k==targets.id:
