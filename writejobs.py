@@ -1,36 +1,43 @@
 run_script = '/home/ckrawiec/git/z-prob/runzprob.py'
 num_threads = 8
-mem_per_thread = '4G'
+mem_per_thread = '3900M'
 n_tab_groups = 1
-n_jobs_per_tab = 2500
-n_targets_per_job = 10000
+n_jobs_per_tab = 1
+n_targets_per_job = None #None=do all
 
-name = 'sva1_gold_y1dfullcosmos_flagBRmasked_auto_griz_full_gauss_z4_6bins+GalaxSVStars3sig'
+name = 'y1d10_y1dfullcosmos_matched_flagBRmasked_auto_griz_full_gauss_z4_6bins+GalaxSV3903sig'
 
 galaxy_template_file = '/home/ckrawiec/DES/data/y1a1_gold_dfull_cosmos_flagBRmasked.fits'
 
-star_template_file = '/home/ckrawiec/DES/data/Galaxia_SV390deg_desflux_radec_good_regions_SPT-E.fits'
+star_template_file = '/home/ckrawiec/DES/data/Galaxia_SV390deg_desflux_radec.fits'
 
-target_file = '/home/ckrawiec/DES/data/sva1_gold_auto_good_regions_no_cosmos.fits'
+target_file = '/home/ckrawiec/DES/data/y1a1_gold_d10_dfull_cosmos_matched_d10flagBRmasked_dfullflagBRmasked.fits'
+#balrog_sva1_auto_tab{}_SIM_zp_corr_fluxes.fits'
 
 config_dict = {}
 
 for i in range(1, n_tab_groups+1):
     tab_num = str(i).zfill(2)
 
-    start = 0
-    end = n_targets_per_job
+    if n_targets_per_job:
+        start = 0
+        end = n_targets_per_job
 
     for j in range(n_jobs_per_tab):
-        inds = '{}-{}'.format(start, end)
+        if n_targets_per_job:
+            inds = '{}-{}'.format(start, end)
+            config_dict['start'] = start
+            config_dict['end'] = end
+        else:
+            inds = 'all'
+            config_dict['start'] = ''
+            config_dict['end'] = ''
 
         config = '/home/ckrawiec/git/z-prob/config/{}_{}.config'.format(name, inds).format(tab_num)
         oe = '/home/ckrawiec/jobscripts/output/zprob_{}_{}.oe'.format(name, inds).format(tab_num)
         job = '/home/ckrawiec/jobscripts/zprob_{}_{}.sh'.format(name, inds).format(tab_num)
 
         config_dict['tab_num'] = tab_num
-        config_dict['start'] = start
-        config_dict['end'] = end
 
         config_dict['num_threads'] = num_threads
         config_dict['galaxy_template_file'] = galaxy_template_file
@@ -70,26 +77,33 @@ integration = full
 
 [data]
 #target column names, case sensitive
-target_id_column = COADD_OBJECTS_ID
-target_data_column = FLUX_AUTO_{}
-target_error_column = FLUXERR_AUTO_{}
+target_id_column = COADD_OBJECTS_ID_d10
+target_data_column = FLUX_AUTO_{}_d10
+target_error_column = FLUXERR_AUTO_{}_d10
 
 #template column names, case sensitive
 galaxy_template_id_column = COADD_OBJECTS_ID
 galaxy_template_data_column = FLUX_AUTO_{}
-galaxy_area = 1. #sq. deg.
+#sq. deg.
+galaxy_area = 2.
 redshift_column = zminchi2
 
 star_template_id_column = satid
 star_template_data_column = flux_des_{}
-star_area = 390. #sq. deg.
-
+#sq. deg.
+star_area = 390.
 #specify indices to use slice of target data
 #if not specified, all are used
+\n""" % config_dict)
+
+        if n_targets_per_job:
+            f.write("""
 target_start_index = %(start)s
 target_end_index = %(end)s
 """ % config_dict)
-        f.close()
+            f.close()
+        else:
+            f.close()
 
         f = open(job,'w')
         f.write('#$ -pe omp {}\n'.format(num_threads))
@@ -101,6 +115,7 @@ target_end_index = %(end)s
         f.write('echo python {} {}\n'.format(run_script, config))
         f.write('python {} {}'.format(run_script, config))
         f.close()
-        
-        start += n_targets_per_job
-        end += n_targets_per_job
+
+        if n_targets_per_job:
+            start += n_targets_per_job
+            end += n_targets_per_job

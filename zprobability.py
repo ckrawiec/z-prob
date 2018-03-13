@@ -53,7 +53,7 @@ def P(vals, errs, truevals, nchunks=500, ntruechunks=1000):
     
     return out
 
-def Ptree(vals, errs, truevals, treeunit=None, query_radius=3.):
+def Ptree(vals, errs, truevals, treeunit=None, query_radius=3., thresh=1000):
     out = []
     lencheck = 0
 
@@ -67,10 +67,10 @@ def Ptree(vals, errs, truevals, treeunit=None, query_radius=3.):
         #get nearest neighbors within query_radius to target
         inear = truetree.query_ball_point(val/treeunit, r=query_radius)
         factor = 1.
-        if len(inear)>1000000:
+        if len(inear)>thresh:
             lencheck+=1
-            inear = random.sample(inear, 1000000)
-            factor = len(inear)/1000000.
+            inear = random.sample(inear, thresh)
+            factor = len(inear)/float(thresh)
 
         #data of nearest neighbors
         truearr = truetree.data[inear] * treeunit
@@ -179,7 +179,7 @@ class Targets:
                 #kSeparate rearranged the order, put it back to match id column
                 sorted_back = np.argsort(np.concatenate(index_chunks))
                 if len(sorted_back) > len(chain_results):
-                    final_results = np.concatenate(chain_results, np.array([[np.nan]*(len(sorted_back)-len(chain_results))]))
+                    final_results = np.concatenate((chain_results, np.array([np.nan]*(len(sorted_back)-len(chain_results)))))
                     P_dict[str(z_range)] = final_results[sorted_back]
                 else:
                     P_dict[str(z_range)] = chain_results
@@ -210,7 +210,8 @@ class Targets:
         chain_results = np.concatenate(results)
 
         if len(sorted_back) > len(chain_results):
-            final_results = np.concatenate(chain_results, np.array([[np.nan]*(len(sorted_back)-len(chain_results))]))
+            print len(chain_results), len(sorted_back)
+            final_results = np.concatenate((chain_results, np.array([np.nan]*(len(sorted_back)-len(chain_results)))))
             P_dict['STAR'] = final_results[sorted_back]
         else:
             P_dict['STAR'] = chain_results
@@ -279,8 +280,9 @@ class Targets:
     def kSeparate(self, numthreads):    
         #kmeans does not take NaNs
         not_nan = ~np.isnan(self.errors)
-        e_mask = np.where([np.all(inan) for inan in not_nan])
-        not_e_mask = np.where([not np.all(inan) for inan in not_nan])
+        zero_errors = self.errors>0.
+        e_mask = (np.all(not_nan, axis=1) & np.all(zero_errors, axis=1))
+        not_e_mask = ~e_mask
 
         #separate data by closest errors
         centers, _ = kmeans(self.errors[e_mask], numthreads)
