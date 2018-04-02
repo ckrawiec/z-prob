@@ -1,18 +1,19 @@
 run_script = '/home/ckrawiec/git/z-prob/runzprob.py'
 num_threads = 8
 mem_per_thread = '3900M'
-n_tab_groups = 1
-n_jobs_per_tab = 1
-n_targets_per_job = None #None=do all
+n_tab_groups = 11
+n_jobs_per_tab = 1250
+n_targets_per_job = 10000 #None=do all
+config_dir = '/home/ckrawiec/git/z-prob-config/balrog/'
 
-name = 'y1d10_y1dfullcosmos_matched_flagBRmasked_auto_griz_full_gauss_z4_6bins+GalaxSV3903sig'
+name = 'svbalrogtab{}_y1dfullcosmos_flagBRmasked_auto_griz_full_gauss_z4_6bins+GalaxSV3903sig'
 
 galaxy_template_file = '/home/ckrawiec/DES/data/y1a1_gold_dfull_cosmos_flagBRmasked.fits'
 
 star_template_file = '/home/ckrawiec/DES/data/Galaxia_SV390deg_desflux_radec.fits'
 
-target_file = '/home/ckrawiec/DES/data/y1a1_gold_d10_dfull_cosmos_matched_d10flagBRmasked_dfullflagBRmasked.fits'
-#balrog_sva1_auto_tab{}_SIM_zp_corr_fluxes.fits'
+target_file = '/home/ckrawiec/DES/data/balrog_sva1_auto_tab{}_SIM_zp_corr_fluxes.fits'
+#y1a1_gold_d10_dfull_cosmos_matched_d10flagBRmasked_dfullflagBRmasked.fits'
 
 config_dict = {}
 
@@ -33,7 +34,7 @@ for i in range(1, n_tab_groups+1):
             config_dict['start'] = ''
             config_dict['end'] = ''
 
-        config = '/home/ckrawiec/git/z-prob/config/{}_{}.config'.format(name, inds).format(tab_num)
+        config = '{}{}_{}.config'.format(config_dir, name, inds).format(tab_num)
         oe = '/home/ckrawiec/jobscripts/output/zprob_{}_{}.oe'.format(name, inds).format(tab_num)
         job = '/home/ckrawiec/jobscripts/zprob_{}_{}.sh'.format(name, inds).format(tab_num)
 
@@ -77,9 +78,9 @@ integration = full
 
 [data]
 #target column names, case sensitive
-target_id_column = COADD_OBJECTS_ID_d10
-target_data_column = FLUX_AUTO_{}_d10
-target_error_column = FLUXERR_AUTO_{}_d10
+target_id_column = BALROG_INDEX
+target_data_column = FLUX_AUTO_{}
+target_error_column = FLUXERR_AUTO_{}
 
 #template column names, case sensitive
 galaxy_template_id_column = COADD_OBJECTS_ID
